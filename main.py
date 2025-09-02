@@ -104,23 +104,42 @@ def envelope(sound: np.ndarray, adsr: list, sample_rate: int=44100) -> np.ndarra
 
     return _sound
 
-def my_synth(n: note.Note, operator_toggle:list[bool], adsr: list = [0.1, 0.01, 0.8, 0.2]) -> np.ndarray:
+def my_synth(n: note.Note | list[note.Note] | chord.Chord, operator_toggle:list[bool], adsr: list = [0.1, 0.01, 0.8, 0.2]) -> np.ndarray:
     """A simple synthesizer that generates a sound wave for a given note."""
-    print(n, n.pitch.frequency, n.duration.quarterLength, operator_toggle, adsr)
     
-    out = sine_tone(frequency=n.pitch.frequency, duration=float(n.duration.quarterLength), amplitude=1.0)
+    root_note_frequency = 0
+    
+    # TODO: Add option of generating non-sinusoidal waveforms and maybe even harmonics of the root notes?
+    if isinstance(n, chord.Chord):
+        # for _note in n.notes:
+        #     print(_note, _note.pitch.frequency, float(n.duration.quarterLength), operator_toggle, adsr)
+        out = sum(sine_tone(frequency=_note.pitch.frequency, duration=float(n.duration.quarterLength), amplitude=1.0) for _note in n.notes)
+        root_note_frequency = n.notes[0].pitch.frequency
+    elif isinstance(n, list):
+        # for _note in n:
+        #     print(_note, _note.pitch.frequency, float(n[0].duration.quarterLength), operator_toggle, adsr)
+        out = sum(sine_tone(frequency=_note.pitch.frequency, duration=float(n[0].duration.quarterLength), amplitude=1.0) for _note in n)
+        root_note_frequency = n[0].pitch.frequency
+    else:
+        # print(n, n.pitch.frequency, n.duration.quarterLength, operator_toggle, adsr)
+        out = sine_tone(frequency=n.pitch.frequency, duration=float(n.duration.quarterLength), amplitude=1.0)
+        root_note_frequency = n.pitch.frequency
+
+    out /= np.max(np.abs(out))  # Normalize to prevent clipping
+
     if operator_toggle[0]:
         out = am_synth(out, random.choice(range(2,10)))
     if operator_toggle[1]:
-        out = am_synth(out, n.pitch.frequency)
+        out = am_synth(out, carrier_freq=root_note_frequency)
     if operator_toggle[2]:
-        out = fm_synth(out, n.pitch.frequency / 2 - 3, 5.0)
+        out = fm_synth(out, carrier_freq=root_note_frequency / 2 - 3, modulation_index=5.0)
     if operator_toggle[3]:
-        out = fm_synth(out, random.choice(range(2,10)))
+        out = fm_synth(out, carrier_freq=random.choice(range(2,10)), modulation_index=random.choice(range(2,10)))
     if operator_toggle[4]:
-        out = am_synth(out, n.pitch.frequency / 8)
+        out = am_synth(out, carrier_freq=root_note_frequency / 8)
     if operator_toggle[5]:
-        out = fm_synth(out, n.pitch.frequency / 2.0, 5.0)
+        out = fm_synth(out, carrier_freq=root_note_frequency / 2.0, modulation_index=5.0)
+
     out = envelope(out, adsr)
     
     return out
@@ -135,49 +154,58 @@ def chord_from_fundamental(fundamental: pitch.Pitch, harmonic_numbers: list, nea
         harmonic_chord.add(p)
     return harmonic_chord
 
-def axis_progression(_durations: list[duration.Duration], operator_toggle: list[list[bool]]):
+def axis_progression(_durations: list[duration.Duration], operator_toggle: list[list[bool]], octave: int = 5, key_of: str = 'C') -> np.ndarray:
     # Not sure if i am getting this right... oh well. Exploring for funzies.
     # Axis Progression aka Axis of Awesome "Four Chord Wonder progression"
     # I V vi IV
     # For help: Circle of Fifths https://www.youtube.com/watch?v=O43EBVnwNvo
-    root_chord_scale: scale.Scale = scale.MajorScale('C')
+    # I (C major): C – E – G
+    # V (G major): G – B – D
+    # vi (A minor): A – C – E
+    # IV (F major): F – A – C
+
+    # TODO: Allow for different octaves
+
+    root_chord_scale: scale.Scale = scale.MajorScale(f'{key_of}{octave}')
     tonic = note.Note(root_chord_scale.tonic)
-    fifth = tonic.transpose(interval.Interval('P5')) # .transposePitch(root_chord.chord)    
-    sixth = tonic.transpose(interval.Interval('m6')) #.transposePitch(root_chord.chord)
-    fourth = tonic.transpose(interval.Interval('P4')) #.transposePitch(root_chord.chord)
-    print(tonic, fifth, sixth, fourth)
+    fifth = tonic.transpose(interval.Interval('P5')) 
+    sixth = tonic.transpose(interval.Interval('m6')) 
+    fourth = tonic.transpose(interval.Interval('P4'))
+    # print(tonic, fifth, sixth, fourth)
 
     my_scaleB = scale.MajorScale(fifth)
     my_scaleC = scale.MinorScale(sixth)
     my_scaleD = scale.MajorScale(fourth)
-    print(root_chord_scale, my_scaleB, my_scaleC, my_scaleD)
-
-    # For each phrase choose 4 notes to play out of the respective chord
-    # The accumulative melody should sound like the chord progression?
-    phraseA = [random.choice(root_chord_scale.chord) for _ in range(4)]
+    # print(root_chord_scale, my_scaleB, my_scaleC, my_scaleD)
+    # print(root_chord_scale.chord, my_scaleB.chord, my_scaleC.chord, my_scaleD.chord)
     
-    phraseB = [random.choice(my_scaleB.chord) for _ in range(4)]
 
-    phraseC = [random.choice(my_scaleC.chord) for _ in range(4)]
+    phraseA = [chord.Chord([root_chord_scale.chord.notes[i] for i in [0, 2, 4]]) for _ in range(1)]
 
-    phraseD = [random.choice(my_scaleD.chord) for _ in range(4)]
+    phraseB = [chord.Chord([my_scaleB.chord.notes[i] for i in [0, 2, 4]]) for _ in range(1)]
 
-    # Combine each phrase
-    notes = phraseA + phraseB + phraseC + phraseD
-    for i, n in enumerate(notes):
-        n.duration = _durations[i]
+    phraseC = [chord.Chord([my_scaleC.chord.notes[i] for i in [0, 2, 4]]) for _ in range(1)]
 
+    phraseD = [chord.Chord([my_scaleD.chord.notes[i] for i in [0, 2, 4]]) for _ in range(1)]
+
+    # Combine each phrase (a few times)
+    repeats = (len(operator_toggle) // 4)
+    print(f"{repeats=}")
+    notes = (phraseA + phraseB + phraseC + phraseD) * repeats
+    print(notes)
     envelopes = [
-        [0.1, 0.01, 0.8, 0.2],
+        # [0.1, 0.01, 0.8, 0.2],
         [0.05, 0.01, 0.8, 0.1],
-        [0.1, 0.02, 0.7, 0.3],
-        [0.1, 0.01, 0.8, 0.2]
+        # [0.1, 0.02, 0.7, 0.3],
+        # [0.1, 0.01, 0.8, 0.2]
     ]
 
     sound_parts = []
     for i, n in enumerate(notes):
         # Run the note fundamental frequency through my synth operator.
         operator_toggle_index = i % len(operator_toggle)
+        duration_index = i % len(_durations)
+        n.duration = _durations[duration_index]
         synth_note = my_synth(n, operator_toggle=operator_toggle[operator_toggle_index], adsr=random.choice(envelopes))
         sound_parts.append(synth_note)
 
@@ -189,15 +217,72 @@ def axis_progression(_durations: list[duration.Duration], operator_toggle: list[
 def main():
     # The relative ratio of options influences the relative ratio of outcome.
     duration_choices = [2.0, 4.0, 4.0, 4.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0]
-    operator_toggle_choices = [True, True,True,True,True,True,True, False, False]
+    operator_toggle_choices = [True, True, True, True, True, False, False, False]
     
     # Setup the same set of 16 durations that gets the rhythm applied to each progression.
     _durations = [duration.Duration(1.0 / random.choice(duration_choices)) for _ in range(16)]
 
-    # Toggle synth operators every 4 notes
-    _operator_toggles = [[random.choice(operator_toggle_choices) for _ in range(6)] for _ in range(3)]
+    _operator_toggles = [
+        # [True, False, True, True, True, True],
+        # [random.choice(operator_toggle_choices) for _ in range(6)],
 
-    final_sound = reduce(lambda a, b: np.concatenate((a, b)), [axis_progression(_durations, _operator_toggles) for _ in range(32)])
+        # Plain Sine Wave of Chords
+        [False, False, False, False, False, False],
+        [False, False, False, False, False, False],
+        [False, False, False, False, False, False],
+        [False, False, False, False, False, False],
+
+        # AM_Synth only operators for warbly / tremolo like sound
+        [True, True, False, False, True, False],
+        [True, True, False, False, True, False],
+        [True, True, False, False, True, False],
+        [True, True, False, False, True, False],
+
+        # AM and FM Half Harmonics
+        # [True, True, False, True, False, True],
+        # [True, True, False, True, False, True],
+        # [True, True, False, True, False, True],
+        # [True, True, False, True, False, True],
+
+        # All Operators on
+        [True, True, True, True, True, True],
+        [True, True, True, True, True, True],
+        [True, True, True, True, True, True],
+        [True, True, True, True, True, True],
+
+        # Drop the half freq -3 dissonance fm_synth
+        [True, True, False, True, True, True],
+        [True, True, False, True, True, True],
+        [True, True, False, True, True, True],
+        [True, True, False, True, True, True],
+
+        # All Operators on
+        [True, True, True, True, True, True],
+        [True, True, True, True, True, True],
+        [True, True, True, True, True, True],
+        [True, True, True, True, True, True],
+    ]
+    key_of_list = ['C', 'G', 'D', 'A'] #['C', 'G', 'D', 'A', 'E', 'B']
+    N_progressions = 12
+
+    final_sound = reduce(
+        lambda a, b: np.concatenate((a, b)), 
+        [
+            axis_progression(
+                _durations, 
+                _operator_toggles, 
+                octave=(5 - (11*i+1)%3),
+                key_of=key_of_list[i % len(key_of_list)]
+            ) 
+            for i in range(N_progressions)
+        ]
+    )
+    quarterLengthPattern = [float(d.quarterLength) for d in _durations]
+    key_and_octave_sequence = [f"{key_of_list[i % len(key_of_list)]}{(5 - (11*i+1)%3)}" for i in range(N_progressions)]
+    print(f"{key_and_octave_sequence=}")
+    print(f"{_operator_toggles=}")
+    print(f"{quarterLengthPattern=}")
+
     sd.play(final_sound, samplerate=44100)
     sd.wait()
 
