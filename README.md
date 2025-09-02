@@ -6,5 +6,9 @@ Download [MuseScore](https://musescore.org/en/download/musescore.dmg) free Music
 
 ```sh
 uv sync
-uv run -m music21.configure
+
+# Optional
+# uv run -m music21.configure
+
+uv run main.py
 ```
